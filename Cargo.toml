@@ -1,0 +1,18 @@
+[package]
+name = "contact"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.7.2", features = ["macros"] }
+axum-flash = "0.8.0"
+fakeit = "1.2.0"
+markup = "0.15.0"
+serde = { version = "1.0.193", features = ["derive"] }
+sqlx = { version = "0.7.3", features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1.35.0", features = ["full"] }
+tower-http = { version = "0.5.0", features = ["fs"] }
+typed-builder = "0.18.0"
+validator = { version = "0.16", features = ["phone"] }
