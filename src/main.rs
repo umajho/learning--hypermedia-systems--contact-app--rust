@@ -12,7 +12,7 @@ use axum::{
 use axum_flash::{Flash, IncomingFlashes};
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
-use tower_http::services::ServeDir;
+use tower_http::{catch_panic::CatchPanicLayer, services::ServeDir};
 
 use contact_model::{Contact, ContactErrors, ContactId};
 use contact_repo::ContactRepo;
@@ -51,6 +51,7 @@ async fn main() {
         .route("/contacts/:contact_id/edit", get(contacts_edit_get))
         .route("/contacts/:contact_id/edit", post(contacts_edit_post))
         .route("/contacts/:contact_id/delete", post(contacts_delete_post))
+        .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
