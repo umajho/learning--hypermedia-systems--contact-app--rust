@@ -9,7 +9,7 @@ pub struct ContactErrors {
     pub email: Option<String>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ContactId(u32);
 impl ContactId {
     pub fn new(id: u32) -> Self {
@@ -51,14 +51,18 @@ impl Contact {
         false
     }
 
-    pub fn validate(&self) -> Result<(), ContactErrors> {
-        let err_email = if self.email.is_empty() {
+    pub fn validate_email(email: &str) -> Option<String> {
+        if email.is_empty() {
             Some("Email Required".to_string())
-        } else if !validator::validate_email(&self.email) {
+        } else if !validator::validate_email(email) {
             Some("Email Not Valid".to_string())
         } else {
             None
-        };
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ContactErrors> {
+        let err_email = Self::validate_email(&self.email);
 
         let err_phone = /*if !self.phone.is_empty() && !validator::validate_phone(&self.phone) {
             Some("Phone Not Valid".to_string())

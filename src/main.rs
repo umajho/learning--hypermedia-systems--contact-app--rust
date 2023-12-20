@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Form, FromRef, Path, Query, State},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use axum_flash::{Flash, IncomingFlashes};
@@ -30,12 +30,18 @@ impl FromRef<AppState> for axum_flash::Config {
     }
 }
 
+const FAKE_CONTACTS: u32 = 100;
+
 #[tokio::main]
 async fn main() {
     let pool = SqlitePoolOptions::new().connect(":memory:").await.unwrap();
 
     let flash_config = axum_flash::Config::new(axum_flash::Key::generate());
-    let contacts = Arc::new(ContactRepo::build_with_fake_data(pool, 3).await.unwrap());
+    let contacts = Arc::new(
+        ContactRepo::build_with_fake_data(pool, FAKE_CONTACTS)
+            .await
+            .unwrap(),
+    );
     let app_state = AppState {
         flash_config,
         contacts,
@@ -51,6 +57,8 @@ async fn main() {
         .route("/contacts/:contact_id/edit", get(contacts_edit_get))
         .route("/contacts/:contact_id/edit", post(contacts_edit_post))
         .route("/contacts/:contact_id/delete", post(contacts_delete_post))
+        .route("/contacts/:contact_id", delete(contacts_delete_post))
+        .route("/contacts/validate-email", get(contacts_validate_email))
         .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
@@ -63,19 +71,21 @@ async fn root() -> impl IntoResponse {
 }
 
 #[derive(Deserialize)]
-struct SearchQuery {
-    q: String,
+struct ContactsQuery {
+    q: Option<String>,
+    page: Option<u32>,
 }
 
 async fn contacts_get(
     State(app_state): State<AppState>,
     flashes: IncomingFlashes,
-    search: Option<Query<SearchQuery>>,
+    Query(query): Query<ContactsQuery>,
 ) -> impl IntoResponse {
-    let q = search.map(|q| q.q.trim().to_string());
+    let q = query.q.map(|q| q.trim().to_string());
+    let page = query.page.unwrap_or(1);
     let contacts_set = match &q {
-        Some(q) if !q.is_empty() => app_state.contacts.search(q).await,
-        _ => app_state.contacts.all().await,
+        Some(q) if !q.is_empty() => app_state.contacts.search(q, page).await,
+        _ => app_state.contacts.all(page).await,
     }
     .unwrap();
 
@@ -83,7 +93,8 @@ async fn contacts_get(
         flashes: &flashes,
         content: ContactsContent {
             contacts: contacts_set,
-            q,
+            q: q.as_deref(),
+            page,
         },
     }
     .to_string();
@@ -239,8 +250,50 @@ async fn contacts_delete_post(
     (flash.success("Deleted Contact!"), Redirect::to("/contacts"))
 }
 
+#[derive(Deserialize)]
+struct ValidateContactEmailForm {
+    email: String,
+    contact_id: Option<u32>,
+}
+
+async fn contacts_validate_email(
+    State(app_state): State<AppState>,
+    Form(form): Form<ValidateContactEmailForm>,
+) -> impl IntoResponse {
+    app_state
+        .contacts
+        .validate_email(form.contact_id.map(ContactId::new), form.email)
+        .await
+        .unwrap()
+        .unwrap_or("".to_string())
+}
+
 markup::define! {
-    ContactsContent(contacts: Vec<Contact>, q: Option<String>) {
+    ContactsContent<'a>(contacts: Vec<Contact>, q: Option<&'a str>, page: u32) {
+        // div {
+        //     span [style="float: right"] {
+        //         @if *page > 1 {
+        //             a [
+        //                 "hx-get"=format!("/contacts?page={}", page-1),
+        //                 "hx-target"="body",
+        //                 "hx-swap"="outerHTML",
+        //                 "hx-push-url"="true",
+        //                 "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+        //             ] { "Previous" }
+        //         }
+        //         @{" "}
+        //         @if contacts.len() == (contact_repo::PAGE_SIZE as usize) {
+        //             a [
+        //                 "hx-get"=format!("/contacts?page={}", page+1),
+        //                 "hx-target"="body",
+        //                 "hx-swap"="outerHTML",
+        //                 "hx-push-url"="true",
+        //                 "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+        //             ] { "Next" }
+        //         }
+        //     }
+        // }
+
         form ."tool-bar"[action="/contacts", method="get"] {
             label [for="search"] { "Search Term" }
             input #search[type="search", name="q", value=q];
@@ -263,6 +316,27 @@ markup::define! {
                             a [href=format!("/contacts/{}/edit", contact.id().value())] { "Edit" }
                             @{" "}
                             a [href=format!("/contacts/{}", contact.id().value())] { "View" }
+                        }
+                    }
+                }
+                @if contacts.len() == 10 {
+                    tr {
+                        td [colspan="5", style="text-align: center"] {
+                            // botton [
+                            //     "hx-target"="closest tr",
+                            //     "hx-swap"="outerHTML",
+                            //     "hx-select"="tbody > tr",
+                            //     "hx-get"=format!("/contacts?page={}", page + 1),
+                            //     "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+                            // ] { "Load More" }
+                            span [
+                                "hx-target"="closest tr",
+                                "hx-trigger"="revealed",
+                                "hx-swap"="outerHTML",
+                                "hx-select"="tbody > tr",
+                                "hx-get"=format!("/contacts?page={}", page + 1),
+                                "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+                            ] { "Loading More…" }
                         }
                     }
                 }
@@ -304,7 +378,14 @@ markup::define! {
         }
 
         form [action=format!("/contacts/{}/delete", contact.id().value()), method="POST"] {
-            button { "Delete Contact" }
+            button [
+                "hx-delete"=format!("/contacts/{}", contact.id().value()),
+                "hx-push-url"="true",
+                "hx-confirm"="Are you sure you want to delete this contact?",
+                "hx-target"="body",
+            ] {
+                "Delete Contact"
+            }
         }
 
         p {
@@ -317,34 +398,42 @@ markup::define! {
             legend { "Contact Values" }
             p {
                 label [for="email"] { "Email" }
-                input #email[name="email", type="email", placeholder="Email",
-                    value=contact.map(|c| c.email())];
-                @if let Some(errors) = &errors {
-                    span .error { @errors.email }
+                input #email[
+                    name="email", type="email", placeholder="Email",
+                    value=contact.map(|c| c.email()),
+                    "hx-get"="/contacts/validate-email",
+                    "hx-target"="next .error",
+                    "hx-trigger"="change, keyup delay:200ms changed",
+                    "hx-vals"=contact.map(|c| serde_json::json!({
+                        "contact_id": c.id().value()
+                    }).to_string()),
+                ];
+                span .error {
+                    @errors.as_ref().and_then(|errs| errs.email.as_deref())
                 }
             }
             p {
                 label [for="first_name"] { "First Name" }
                 input #first_name[name="first_name", type="text", placeholder="First Name",
                     value=contact.map(|c| c.first())];
-                @if let Some(errors) = &errors {
-                    span .error { @errors.first }
+                span .error {
+                    @errors.as_ref().and_then(|errs| errs.first.as_deref())
                 }
             }
             p {
                 label [for="last_name"] { "Last Name" }
                 input #last_name[name="last_name", type="text", placeholder="Last Name",
                     value=contact.map(|c| c.last())];
-                @if let Some(errors) = &errors {
-                    span .error { @errors.last }
+                span .error {
+                    @errors.as_ref().and_then(|errs| errs.last.as_deref())
                 }
             }
             p {
                 label [for="phone"] { "Phone" }
                 input #phone[name="phone", type="text", placeholder="Phone",
                     value=contact.map(|c| c.phone())];
-                @if let Some(errors) = &errors {
-                    span .error { @errors.phone }
+                span .error {
+                    @errors.as_ref().and_then(|errs| errs.phone.as_deref())
                 }
             }
             button { "Save" }
@@ -357,12 +446,17 @@ markup::define! {
         @markup::doctype()
         html {
             head {
+                script [
+                    src="https://unpkg.com/htmx.org@1.9.9",
+                    integrity="sha384-QFjmbokDn2DjBjq+fM+8LUIVrAgqcNW2s0PjAxHETgRn9l4fvX31ZxDxvwQnyMOX",
+                    crossorigin="anonymous",
+                ] {}
                 title { "Contact App" }
                 link [rel="stylesheet", href="https://unpkg.com/missing.css@1.1.1"];
                 link [rel="stylesheet", href="/static/site.css"];
             }
         }
-        body {
+        body ["hx-boost"="true"] {
             main {
                 @for (_, message) in flashes.iter() {
                     div .flash { @message }

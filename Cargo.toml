@@ -11,6 +11,7 @@ axum-flash = "0.8.0"
 fakeit = "1.2.0"
 markup = "0.15.0"
 serde = { version = "1.0.193", features = ["derive"] }
+serde_json = "1.0.108"
 sqlx = { version = "0.7.3", features = ["sqlite", "runtime-tokio"] }
 tokio = { version = "1.35.0", features = ["full"] }
 tower-http = { version = "0.5.0", features = ["fs", "catch-panic"] }

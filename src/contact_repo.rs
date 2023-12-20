@@ -4,6 +4,11 @@ use sqlx::sqlite::SqlitePool;
 
 use crate::contact_model::{Contact, ContactErrors, ContactId};
 
+const ERR_EMAIL_UNIQUE: &str = "Email Must Be Unique";
+
+/// TODO: move to somewhere more properly.
+pub const PAGE_SIZE: u32 = 10;
+
 pub struct ContactRepo {
     pool: SqlitePool,
 
@@ -56,23 +61,35 @@ impl ContactRepo {
         ContactId::new(id)
     }
 
-    pub async fn all(&self) -> Result<Vec<Contact>, Box<dyn Error>> {
-        let contacts: Vec<Contact> = sqlx::query_as("SELECT * FROM contact")
-            .fetch_all(&self.pool)
-            .await?;
+    pub async fn all(&self, page: u32) -> Result<Vec<Contact>, Box<dyn Error>> {
+        let page = page.max(1);
+
+        let contacts: Vec<Contact> = sqlx::query_as(
+            r#"SELECT * FROM contact
+            LIMIT ? OFFSET ?"#,
+        )
+        .bind(PAGE_SIZE)
+        .bind((page - 1) * PAGE_SIZE)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(contacts)
     }
 
-    pub async fn search(&self, q: &str) -> Result<Vec<Contact>, Box<dyn Error>> {
+    pub async fn search(&self, q: &str, page: u32) -> Result<Vec<Contact>, Box<dyn Error>> {
+        let page = page.max(1);
+
         let contacts: Vec<Contact> = sqlx::query_as(
             r#"
             SELECT * FROM contact 
             WHERE
                 first LIKE ("%" || ? || "%") OR
-                last LIKE ("%" || ? || "%")"#,
+                last LIKE ("%" || ? || "%")
+                LIMIT ? OFFSET ?"#,
         )
         .bind(q)
         .bind(q)
+        .bind(PAGE_SIZE)
+        .bind((page - 1) * PAGE_SIZE)
         .fetch_all(&self.pool)
         .await?;
         Ok(contacts)
@@ -88,7 +105,7 @@ impl ContactRepo {
 
         if !Self::execute_save(&self.pool, contact).await? {
             return Ok(Err(ContactErrors {
-                email: Some("Email Must Be Unique".to_string()),
+                email: Some(ERR_EMAIL_UNIQUE.to_string()),
                 ..Default::default()
             }));
         };
@@ -99,6 +116,15 @@ impl ContactRepo {
     pub async fn find(&self, id: ContactId) -> Result<Option<Contact>, Box<dyn Error>> {
         let contact: Option<Contact> = sqlx::query_as("SELECT * FROM contact WHERE id = ?")
             .bind(id.value())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(contact)
+    }
+
+    pub async fn find_by_email(&self, id: String) -> Result<Option<Contact>, Box<dyn Error>> {
+        let contact: Option<Contact> = sqlx::query_as("SELECT * FROM contact WHERE email = ?")
+            .bind(id)
             .fetch_optional(&self.pool)
             .await?;
 
@@ -122,6 +148,25 @@ impl ContactRepo {
         Self::execute_delete(&self.pool, contact_id).await?;
 
         Ok(())
+    }
+
+    pub async fn validate_email(
+        &self,
+        contact_id: Option<ContactId>,
+        email: String,
+    ) -> Result<Option<String>, Box<dyn Error>> {
+        if let Some(err) = Contact::validate_email(&email) {
+            return Ok(Some(err));
+        }
+
+        let Some(contact_with_email) = self.find_by_email(email).await? else {
+            return Ok(None);
+        };
+
+        match contact_id {
+            Some(contact_id) if contact_id == contact_with_email.id() => Ok(None),
+            _ => Ok(Some(ERR_EMAIL_UNIQUE.to_string())),
+        }
     }
 
     async fn execute_save<'a>(
