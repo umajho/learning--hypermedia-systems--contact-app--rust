@@ -110,9 +110,9 @@ struct NewContactForm {
     email: String,
 }
 impl NewContactForm {
-    fn build_contact(self, id: u32) -> Contact {
+    fn build_contact(self, id: ContactId) -> Contact {
         Contact::builder()
-            .id(ContactId::new(id))
+            .id(id)
             .first(self.first_name)
             .last(self.last_name)
             .phone(self.phone)
@@ -156,7 +156,7 @@ async fn contacts_view_get(
 ) -> impl IntoResponse {
     let contact = app_state
         .contacts
-        .find(contact_id.parse().unwrap())
+        .find(ContactId::new(contact_id.parse().unwrap()))
         .await
         .unwrap()
         .unwrap();
@@ -178,7 +178,7 @@ async fn contacts_edit_get(
 ) -> impl IntoResponse {
     let contact = app_state
         .contacts
-        .find(contact_id.parse().unwrap())
+        .find(ContactId::new(contact_id.parse().unwrap()))
         .await
         .unwrap()
         .unwrap();
@@ -203,12 +203,13 @@ async fn contacts_edit_post(
     Path(contact_id): Path<String>,
     Form(form): Form<NewContactForm>,
 ) -> Response {
-    let contact = form.build_contact(contact_id.parse().unwrap());
+    let contact_id = ContactId::new(contact_id.parse().unwrap());
+    let contact = form.build_contact(contact_id);
 
     match app_state.contacts.update(&contact).await.unwrap() {
         Ok(_) => (
             flash.success("Updated Contact!"),
-            Redirect::to(&format!("/contacts/{}", contact_id)),
+            Redirect::to(&format!("/contacts/{}", contact_id.value())),
         )
             .into_response(),
         Err(errors) => {

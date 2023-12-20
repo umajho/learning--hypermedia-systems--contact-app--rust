@@ -49,9 +49,11 @@ impl ContactRepo {
         Ok(c)
     }
 
-    pub fn pop_id(&self) -> u32 {
-        self.next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    pub fn pop_id(&self) -> ContactId {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        ContactId::new(id)
     }
 
     pub async fn all(&self) -> Result<Vec<Contact>, Box<dyn Error>> {
@@ -94,9 +96,9 @@ impl ContactRepo {
         Ok(Ok(()))
     }
 
-    pub async fn find(&self, id: u32) -> Result<Option<Contact>, Box<dyn Error>> {
+    pub async fn find(&self, id: ContactId) -> Result<Option<Contact>, Box<dyn Error>> {
         let contact: Option<Contact> = sqlx::query_as("SELECT * FROM contact WHERE id = ?")
-            .bind(id)
+            .bind(id.value())
             .fetch_optional(&self.pool)
             .await?;
 
