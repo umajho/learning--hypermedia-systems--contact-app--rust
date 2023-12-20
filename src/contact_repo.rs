@@ -84,7 +84,12 @@ impl ContactRepo {
             return Ok(Err(errors));
         }
 
-        Self::execute_save(&self.pool, contact).await?;
+        if !Self::execute_save(&self.pool, contact).await? {
+            return Ok(Err(ContactErrors {
+                email: Some("Email Must Be Unique".to_string()),
+                ..Default::default()
+            }));
+        };
 
         Ok(Ok(()))
     }
@@ -120,8 +125,8 @@ impl ContactRepo {
     async fn execute_save<'a>(
         executor: impl sqlx::sqlite::SqliteExecutor<'a>,
         contact: &Contact,
-    ) -> Result<(), Box<dyn Error>> {
-        sqlx::query(
+    ) -> Result<bool, Box<dyn Error>> {
+        let result = sqlx::query(
             "
             INSERT INTO contact (id, first, last, phone, email)
             VALUES (?, ?, ?, ?, ?)
@@ -133,9 +138,18 @@ impl ContactRepo {
         .bind(contact.phone())
         .bind(contact.email())
         .execute(executor)
-        .await?;
-
-        Ok(())
+        .await;
+        match result {
+            Ok(_) => Ok(true),
+            Err(err) => 'err: {
+                if let Some(err) = err.as_database_error() {
+                    if err.is_unique_violation() {
+                        break 'err Ok(false);
+                    }
+                }
+                Err(err.into())
+            }
+        }
     }
 
     async fn execute_update<'a>(
