@@ -239,7 +239,7 @@ async fn contacts_delete_post(
 
 markup::define! {
     ContactsContent(contacts: Vec<Contact>, q: Option<String>) {
-        form."tool-bar"[action="/contacts", method="get"] {
+        form ."tool-bar"[action="/contacts", method="get"] {
             label [for="search"] { "Search Term" }
             input #search[type="search", name="q", value=q];
             input [type="submit", value="Search"];
