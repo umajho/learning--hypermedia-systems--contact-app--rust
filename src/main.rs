@@ -289,6 +289,9 @@ markup::define! {
             input #search[type="search", name="q", value=q];
             input [type="submit", value="Search"];
         }
+        p {
+            a [href="contacts/new"] { "Add Contact" }
+        }
         table {
             thead {
                 tr {
@@ -331,9 +334,6 @@ markup::define! {
                     }
                 }
             }
-        }
-        p {
-            a [href="contacts/new"] { "Add Contact" }
         }
     }
 
