@@ -61,6 +61,14 @@ impl ContactRepo {
         ContactId::new(id)
     }
 
+    pub async fn count(&self) -> Result<u32, Box<dyn Error>> {
+        let (count,): (u32,) = sqlx::query_as("SELECT count(*) FROM contact")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(count)
+    }
+
     pub async fn all(&self, page: u32) -> Result<Vec<Contact>, Box<dyn Error>> {
         let page = page.max(1);
 

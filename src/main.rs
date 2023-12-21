@@ -2,16 +2,18 @@ mod contact_model;
 mod contact_repo;
 mod laying_out;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Form, FromRef, Path, Query, State},
+    extract::{FromRef, Path, Query, State},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{delete, get, post},
     Extension, Router,
 };
+use axum_extra::extract::Form;
 use axum_flash::{Flash, IncomingFlashes};
+use axum_htmx::HxTrigger;
 use laying_out::Layouter;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -54,6 +56,7 @@ async fn main() {
         .nest_service("/static", ServeDir::new("static"))
         .route("/", get(root))
         .route("/contacts", get(contacts_get))
+        .route("/contacts/count", get(contacts_count_get))
         .route("/contacts/new", get(contacts_new_get))
         .route("/contacts/new", post(contacts_new_post))
         .route("/contacts/:contact_id", get(contacts_view_get))
@@ -61,6 +64,7 @@ async fn main() {
         .route("/contacts/:contact_id/edit", post(contacts_edit_post))
         .route("/contacts/:contact_id/delete", post(contacts_delete_post))
         .route("/contacts/:contact_id", delete(contacts_delete_post))
+        .route("/contacts", delete(contacts_delete))
         .route("/contacts/validate-email", get(contacts_validate_email))
         .layer(middleware::from_fn(laying_out::with_layouter))
         .layer(CatchPanicLayer::new())
@@ -83,6 +87,7 @@ struct ContactsQuery {
 async fn contacts_get(
     State(app_state): State<AppState>,
     Extension(Layouter(layouter)): Extension<Layouter>,
+    HxTrigger(htmx_trigger): HxTrigger,
     flashes: IncomingFlashes,
     Query(query): Query<ContactsQuery>,
 ) -> impl IntoResponse {
@@ -94,13 +99,31 @@ async fn contacts_get(
     }
     .unwrap();
 
-    let content = ContactsContent {
-        contacts: contacts_set,
-        q: q.as_deref(),
-        page,
+    let rendered = if htmx_trigger.as_deref() == Some("search") {
+        Html(
+            ContactsTableRows {
+                contacts: &contacts_set,
+                q: &q.as_deref(),
+                page: &page,
+            }
+            .to_string(),
+        )
+    } else {
+        let content = ContactsContent {
+            contacts: contacts_set,
+            q: q.as_deref(),
+            page,
+        };
+        layouter(flashes.clone(), markup::new!(@content))
     };
-    let rendered = layouter(flashes.clone(), markup::new!(@content));
+
     (flashes, rendered)
+}
+
+async fn contacts_count_get(State(app_state): State<AppState>) -> impl IntoResponse {
+    let count = app_state.contacts.count().await.unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    Html(html_escape::encode_text(&format!("({} total Contacts)", count)).to_string())
 }
 
 async fn contacts_new_get(
@@ -229,15 +252,51 @@ async fn contacts_edit_post(
 
 async fn contacts_delete_post(
     State(app_state): State<AppState>,
+    HxTrigger(htmx_trigger): HxTrigger,
     flash: Flash,
     Path(contact_id): Path<String>,
-) -> impl IntoResponse {
+) -> Response {
     app_state
         .contacts
         .delete(ContactId::new(contact_id.parse().unwrap()))
         .await
         .unwrap();
-    (flash.success("Deleted Contact!"), Redirect::to("/contacts"))
+    if htmx_trigger.as_deref() == Some("delete-btn") {
+        (flash.success("Deleted Contact!"), Redirect::to("/contacts")).into_response()
+    } else {
+        Html("").into_response()
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteContactsForm {
+    selected_contact_ids: Vec<u32>,
+}
+
+/// NOTE: In Chapter 06, the book let this function response the content as if
+/// were requested by a “GET” verb, instead of redirecting like how it is done
+/// here. the book also removed `hx-push-url` from the button that can issue
+/// this route. The way the book handled ignored URL queries, and I'm too lazy
+/// to take care of them, but I also don't want to make them broken as the book
+/// did, so I chose the simple way to just redirect the page to the URL without
+/// queries.
+async fn contacts_delete(
+    State(app_state): State<AppState>,
+    flash: Flash,
+    Form(form): Form<DeleteContactsForm>,
+) -> impl IntoResponse {
+    for contact_id in form.selected_contact_ids {
+        app_state
+            .contacts
+            .delete(ContactId::new(contact_id))
+            .await
+            .unwrap();
+    }
+
+    (
+        flash.success("Deleted Contacts!"),
+        Redirect::to("/contacts"),
+    )
 }
 
 #[derive(Deserialize)]
@@ -287,52 +346,95 @@ markup::define! {
 
         form ."tool-bar"[action="/contacts", method="get"] {
             label [for="search"] { "Search Term" }
-            input #search[type="search", name="q", value=q];
+            input #search[
+                type="search", name="q", value=q,
+                "hx-get"="/contacts",
+                "hx-trigger"="search, change, keyup delay:200ms changed",
+                "hx-target"="tbody",
+                "hx-push-url"="true",
+                "hx-indicator"="#spinner",
+            ];
+            img #spinner."htmx-indicator"[
+                style="height: 20px",
+                src="/static/img/spinning-circles.svg",
+                alt="Request In Flight...",
+            ];
             input [type="submit", value="Search"];
         }
         p {
             a [href="contacts/new"] { "Add Contact" }
+            @{" "}
+            span ["hx-get"="/contacts/count", "hx-trigger"="revealed"/*"load"*/] {
+                img ."htmx-indicator"[
+                    style="height: 20px",
+                    src="/static/img/spinning-circles.svg",
+                ];
+            }
         }
-        table {
-            thead {
-                tr {
-                    th { "First" } th { "Last" } th { "Phone" } th { "Email" }
+        form {
+            button [
+                "hx-delete"="/contacts",
+                "hx-push-url"="true", // NOTE: See [`contacts_delete`].
+                "hx-confirm"="Are you sure you want to delete these contacts?",
+                "hx-target"="main",
+            ] { "Delete Selected Contacts" }
+            table {
+                thead {
+                    tr {
+                        th; th { "First" } th { "Last" } th { "Phone" } th { "Email" }
+                    }
+                }
+                tbody {
+                    @ContactsTableRows { contacts, q, page }
                 }
             }
-            tbody {
-                @for contact in contacts {
-                    tr {
-                        td { @contact.first() }
-                        td { @contact.last() }
-                        td { @contact.phone() }
-                        td { @contact.email() }
-                        td {
-                            a [href=format!("/contacts/{}/edit", contact.id().value())] { "Edit" }
-                            @{" "}
-                            a [href=format!("/contacts/{}", contact.id().value())] { "View" }
-                        }
+        }
+    }
+
+    ContactsTableRows<'a>(contacts: &'a Vec<Contact>, q: &'a Option<&'a str>, page: &'a u32) {
+        @for contact in contacts.iter() {
+            tr {
+                td {
+                    input [type="checkbox", name="selected_contact_ids", value=contact.id().value()];
+                }
+                td { @contact.first() }
+                td { @contact.last() }
+                td { @contact.phone() }
+                td { @contact.email() }
+                td {
+                    a [href=format!("/contacts/{}/edit", contact.id().value())] { "Edit" }
+                    @{" "}
+                    a [href=format!("/contacts/{}", contact.id().value())] { "View" }
+                    @{" "}
+                    a [
+                        "hx-delete"=format!("/contacts/{}", contact.id().value()),
+                        "hx-swap"="outerHTML swap:1s",
+                        "hx-confirm"="Are you sure you want to delete this contact?",
+                        "hx-target"="closest tr",
+                    ] {
+                        "Delete"
                     }
                 }
-                @if contacts.len() == 10 {
-                    tr {
-                        td [colspan="5", style="text-align: center"] {
-                            // botton [
-                            //     "hx-target"="closest tr",
-                            //     "hx-swap"="outerHTML",
-                            //     "hx-select"="tbody > tr",
-                            //     "hx-get"=format!("/contacts?page={}", page + 1),
-                            //     "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
-                            // ] { "Load More" }
-                            span [
-                                "hx-target"="closest tr",
-                                "hx-trigger"="revealed",
-                                "hx-swap"="outerHTML",
-                                "hx-select"="tbody > tr",
-                                "hx-get"=format!("/contacts?page={}", page + 1),
-                                "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
-                            ] { "Loading More…" }
-                        }
-                    }
+            }
+        }
+        @if contacts.len() == 10 {
+            tr {
+                td [colspan="5", style="text-align: center"] {
+                    // botton [
+                    //     "hx-target"="closest tr",
+                    //     "hx-swap"="outerHTML",
+                    //     "hx-select"="tbody > tr",
+                    //     "hx-get"=format!("/contacts?page={}", page + 1),
+                    //     "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+                    // ] { "Load More" }
+                    span [
+                        "hx-target"="closest tr",
+                        "hx-trigger"="revealed",
+                        "hx-swap"="outerHTML",
+                        "hx-select"="tbody > tr",
+                        "hx-get"=format!("/contacts?page={}", *page + 1),
+                        "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
+                    ] { "Loading More…" }
                 }
             }
         }
@@ -369,11 +471,11 @@ markup::define! {
         }
 
         form [action=format!("/contacts/{}/delete", contact.id().value()), method="POST"] {
-            button [
+            button #"delete-btn"[
                 "hx-delete"=format!("/contacts/{}", contact.id().value()),
                 "hx-push-url"="true",
                 "hx-confirm"="Are you sure you want to delete this contact?",
-                "hx-target"="body",
+                "hx-target"="main",
             ] {
                 "Delete Contact"
             }

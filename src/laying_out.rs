@@ -4,8 +4,10 @@ use axum::{
     extract::Request,
     middleware::Next,
     response::{Html, Response},
+    RequestExt,
 };
 use axum_flash::IncomingFlashes;
+use axum_htmx::{HxBoosted, HxRequest};
 
 #[derive(Clone)]
 pub struct Layouter(pub LayouterInner);
@@ -14,9 +16,16 @@ pub type LayouterInner =
     Arc<dyn Fn(IncomingFlashes, markup::DynRender) -> Html<String> + Send + Sync + 'static>;
 
 pub async fn with_layouter(mut req: Request, next: Next) -> Response {
-    let layouter = Layouter(Arc::new(|flashes, content| {
-        Html(layouts::Default { flashes, content }.to_string())
-    }));
+    let HxRequest(is_htmx_request) = req.extract_parts::<HxRequest>().await.unwrap();
+    let HxBoosted(is_htmx_boosted) = req.extract_parts::<HxBoosted>().await.unwrap();
+
+    let layouter = if is_htmx_request && !is_htmx_boosted {
+        Layouter(Arc::new(|_, content| Html(content.to_string())))
+    } else {
+        Layouter(Arc::new(|flashes, content| {
+            Html(layouts::Default { flashes, content }.to_string())
+        }))
+    };
 
     req.extensions_mut().insert(layouter);
 

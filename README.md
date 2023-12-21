@@ -10,6 +10,7 @@ WIP:
 
 - [x] Chapter 03
 - [x] Chapter 05
+- [x] Chapter 06
 - [ ] …
 
 The license of this repository is consistent with the book's
@@ -22,3 +23,4 @@ The following file(s) is/are excluded from this repository because the original
 unlicensed, and I'm too lazy to craft it/them by myself:
 
 - `static/site.css`
+- `static/img/spinning-circles.svg`
