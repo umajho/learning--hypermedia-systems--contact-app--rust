@@ -1,15 +1,18 @@
 mod contact_model;
 mod contact_repo;
+mod laying_out;
 
 use std::sync::Arc;
 
 use axum::{
     extract::{Form, FromRef, Path, Query, State},
-    response::{Html, IntoResponse, Redirect, Response},
+    middleware,
+    response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post},
-    Router,
+    Extension, Router,
 };
 use axum_flash::{Flash, IncomingFlashes};
+use laying_out::Layouter;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
 use tower_http::{catch_panic::CatchPanicLayer, services::ServeDir};
@@ -59,6 +62,7 @@ async fn main() {
         .route("/contacts/:contact_id/delete", post(contacts_delete_post))
         .route("/contacts/:contact_id", delete(contacts_delete_post))
         .route("/contacts/validate-email", get(contacts_validate_email))
+        .layer(middleware::from_fn(laying_out::with_layouter))
         .layer(CatchPanicLayer::new())
         .with_state(app_state);
 
@@ -78,6 +82,7 @@ struct ContactsQuery {
 
 async fn contacts_get(
     State(app_state): State<AppState>,
+    Extension(Layouter(layouter)): Extension<Layouter>,
     flashes: IncomingFlashes,
     Query(query): Query<ContactsQuery>,
 ) -> impl IntoResponse {
@@ -89,28 +94,25 @@ async fn contacts_get(
     }
     .unwrap();
 
-    let rendered = Layout {
-        flashes: &flashes,
-        content: ContactsContent {
-            contacts: contacts_set,
-            q: q.as_deref(),
-            page,
-        },
-    }
-    .to_string();
-    (flashes, Html(rendered))
+    let content = ContactsContent {
+        contacts: contacts_set,
+        q: q.as_deref(),
+        page,
+    };
+    let rendered = layouter(flashes.clone(), markup::new!(@content));
+    (flashes, rendered)
 }
 
-async fn contacts_new_get(flashes: IncomingFlashes) -> impl IntoResponse {
-    let rendered = Layout {
-        flashes: &flashes,
-        content: NewContactContent {
-            contact: None,
-            errors: None,
-        },
-    }
-    .to_string();
-    (flashes, Html(rendered))
+async fn contacts_new_get(
+    Extension(Layouter(layouter)): Extension<Layouter>,
+    flashes: IncomingFlashes,
+) -> impl IntoResponse {
+    let content = NewContactContent {
+        contact: None,
+        errors: None,
+    };
+    let rendered = layouter(flashes.clone(), markup::new!(@content));
+    (flashes, rendered)
 }
 
 #[derive(Deserialize)]
@@ -134,6 +136,7 @@ impl NewContactForm {
 
 async fn contacts_new_post(
     State(app_state): State<AppState>,
+    Extension(Layouter(layouter)): Extension<Layouter>,
     flashes: IncomingFlashes,
     flash: Flash,
     Form(form): Form<NewContactForm>,
@@ -147,21 +150,19 @@ async fn contacts_new_post(
         )
             .into_response(),
         Err(errors) => {
-            let rendered = Layout {
-                flashes: &flashes,
-                content: NewContactContent {
-                    contact: Some(&contact),
-                    errors: Some(errors),
-                },
-            }
-            .to_string();
-            (flashes, Html(rendered)).into_response()
+            let content = NewContactContent {
+                contact: Some(&contact),
+                errors: Some(errors),
+            };
+            let rendered = layouter(flashes.clone(), markup::new!(@content));
+            (flashes, rendered).into_response()
         }
     }
 }
 
 async fn contacts_view_get(
     State(app_state): State<AppState>,
+    Extension(Layouter(layouter)): Extension<Layouter>,
     flashes: IncomingFlashes,
     Path(contact_id): Path<String>,
 ) -> impl IntoResponse {
@@ -172,18 +173,14 @@ async fn contacts_view_get(
         .unwrap()
         .unwrap();
 
-    let rendered = Html(
-        Layout {
-            flashes: &flashes,
-            content: ViewContactContent { contact: &contact },
-        }
-        .to_string(),
-    );
+    let content = ViewContactContent { contact: &contact };
+    let rendered = layouter(flashes.clone(), markup::new!(@content));
     (flashes, rendered)
 }
 
 async fn contacts_edit_get(
     State(app_state): State<AppState>,
+    Extension(Layouter(layouter)): Extension<Layouter>,
     flashes: IncomingFlashes,
     Path(contact_id): Path<String>,
 ) -> impl IntoResponse {
@@ -194,21 +191,17 @@ async fn contacts_edit_get(
         .unwrap()
         .unwrap();
 
-    let rendered = Html(
-        Layout {
-            flashes: &flashes,
-            content: EditContactContent {
-                contact: &contact,
-                errors: None,
-            },
-        }
-        .to_string(),
-    );
+    let content = EditContactContent {
+        contact: &contact,
+        errors: None,
+    };
+    let rendered = layouter(flashes.clone(), markup::new!(@content));
     (flashes, rendered)
 }
 
 async fn contacts_edit_post(
     State(app_state): State<AppState>,
+    Extension(Layouter(layouter)): Extension<Layouter>,
     flashes: IncomingFlashes,
     flash: Flash,
     Path(contact_id): Path<String>,
@@ -224,15 +217,12 @@ async fn contacts_edit_post(
         )
             .into_response(),
         Err(errors) => {
-            let rendered = Layout {
-                flashes: &flashes,
-                content: EditContactContent {
-                    contact: &contact,
-                    errors: Some(errors),
-                },
-            }
-            .to_string();
-            (flashes, Html(rendered)).into_response()
+            let content = EditContactContent {
+                contact: &contact,
+                errors: Some(errors),
+            };
+            let rendered = layouter(flashes.clone(), markup::new!(@content));
+            (flashes, rendered).into_response()
         }
     }
 }
@@ -437,32 +427,6 @@ markup::define! {
                 }
             }
             button { "Save" }
-        }
-    }
-}
-
-markup::define! {
-    Layout<'a, T: markup::Render>(flashes: &'a IncomingFlashes, content: T) {
-        @markup::doctype()
-        html {
-            head {
-                script [
-                    src="https://unpkg.com/htmx.org@1.9.9",
-                    integrity="sha384-QFjmbokDn2DjBjq+fM+8LUIVrAgqcNW2s0PjAxHETgRn9l4fvX31ZxDxvwQnyMOX",
-                    crossorigin="anonymous",
-                ] {}
-                title { "Contact App" }
-                link [rel="stylesheet", href="https://unpkg.com/missing.css@1.1.1"];
-                link [rel="stylesheet", href="/static/site.css"];
-            }
-        }
-        body ["hx-boost"="true"] {
-            main {
-                @for (_, message) in flashes.iter() {
-                    div .flash { @message }
-                }
-                @content
-            }
         }
     }
 }
