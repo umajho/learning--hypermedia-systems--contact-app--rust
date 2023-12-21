@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Form, FromRef, Path, Query, State},
     middleware,
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{delete, get, post},
     Extension, Router,
 };
@@ -250,12 +250,13 @@ async fn contacts_validate_email(
     State(app_state): State<AppState>,
     Form(form): Form<ValidateContactEmailForm>,
 ) -> impl IntoResponse {
-    app_state
+    let error_text = app_state
         .contacts
         .validate_email(form.contact_id.map(ContactId::new), form.email)
         .await
         .unwrap()
-        .unwrap_or("".to_string())
+        .unwrap_or("".to_string());
+    Html(html_escape::encode_text(&error_text).to_string())
 }
 
 markup::define! {
