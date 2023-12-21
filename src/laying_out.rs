@@ -8,9 +8,10 @@ use axum::{
 use axum_flash::IncomingFlashes;
 
 #[derive(Clone)]
-pub struct Layouter(
-    pub Arc<dyn Fn(IncomingFlashes, markup::DynRender) -> Html<String> + Send + Sync + 'static>,
-);
+pub struct Layouter(pub LayouterInner);
+
+pub type LayouterInner =
+    Arc<dyn Fn(IncomingFlashes, markup::DynRender) -> Html<String> + Send + Sync + 'static>;
 
 pub async fn with_layouter(mut req: Request, next: Next) -> Response {
     let layouter = Layouter(Arc::new(|flashes, content| {
