@@ -1,6 +1,7 @@
 mod contact_model;
 mod contact_repo;
 mod laying_out;
+mod static_assets;
 
 use std::{sync::Arc, time::Duration};
 
@@ -17,7 +18,8 @@ use axum_htmx::HxTrigger;
 use laying_out::Layouter;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
-use tower_http::{catch_panic::CatchPanicLayer, services::ServeDir};
+use static_assets::StaticFile;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use contact_model::{Contact, ContactErrors, ContactId};
 use contact_repo::ContactRepo;
@@ -53,7 +55,7 @@ async fn main() {
     };
 
     let app = Router::new()
-        .nest_service("/static", ServeDir::new("static"))
+        .route("/static/*path", get(static_assets_get))
         .route("/", get(root))
         .route("/contacts", get(contacts_get))
         .route("/contacts/count", get(contacts_count_get))
@@ -72,6 +74,10 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn static_assets_get(Path(path): Path<String>) -> impl IntoResponse {
+    StaticFile(path)
 }
 
 async fn root() -> impl IntoResponse {
