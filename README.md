@@ -11,6 +11,7 @@ WIP:
 - [x] Chapter 03
 - [x] Chapter 05
 - [x] Chapter 06
+- [x] Chapter 07
 - [ ] …
 
 The license of this repository is consistent with the book's
