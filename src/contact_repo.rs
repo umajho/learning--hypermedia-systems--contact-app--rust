@@ -69,7 +69,14 @@ impl ContactRepo {
         Ok(count)
     }
 
-    pub async fn all(&self, page: u32) -> Result<Vec<Contact>, Box<dyn Error>> {
+    pub async fn all(&self) -> Result<Vec<Contact>, Box<dyn Error>> {
+        let contacts: Vec<Contact> = sqlx::query_as("SELECT * FROM contact")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(contacts)
+    }
+
+    pub async fn all_by_page(&self, page: u32) -> Result<Vec<Contact>, Box<dyn Error>> {
         let page = page.max(1);
 
         let contacts: Vec<Contact> = sqlx::query_as(

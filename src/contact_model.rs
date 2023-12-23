@@ -1,3 +1,4 @@
+use serde::Serialize;
 use sqlx::FromRow;
 use typed_builder::TypedBuilder;
 
@@ -9,7 +10,8 @@ pub struct ContactErrors {
     pub email: Option<String>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct ContactId(u32);
 impl ContactId {
     pub fn new(id: u32) -> Self {
@@ -21,7 +23,7 @@ impl ContactId {
     }
 }
 
-#[derive(Clone, TypedBuilder)]
+#[derive(Clone, TypedBuilder, Serialize)]
 pub struct Contact {
     id: ContactId,
     first: String,

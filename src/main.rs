@@ -1,5 +1,6 @@
 mod contact_model;
 mod contact_repo;
+mod contacts_archiver;
 mod laying_out;
 mod static_assets;
 
@@ -7,14 +8,16 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{FromRef, Path, Query, State},
+    http::{header, StatusCode},
     middleware,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{AppendHeaders, Html, IntoResponse, Redirect, Response},
     routing::{delete, get, post},
     Extension, Router,
 };
 use axum_extra::extract::Form;
 use axum_flash::{Flash, IncomingFlashes};
 use axum_htmx::HxTrigger;
+use contacts_archiver::Archiver;
 use laying_out::Layouter;
 use serde::Deserialize;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -30,6 +33,7 @@ struct AppState {
     flash_config: axum_flash::Config,
 
     contacts: Arc<ContactRepo>,
+    archiver: Arc<Archiver>,
 }
 impl FromRef<AppState> for axum_flash::Config {
     fn from_ref(state: &AppState) -> Self {
@@ -49,15 +53,21 @@ async fn main() {
             .await
             .unwrap(),
     );
+    let archiver = Arc::new(Archiver::new(contacts.clone()));
     let app_state = AppState {
         flash_config,
         contacts,
+        archiver,
     };
 
     let app = Router::new()
         .route("/static/*path", get(static_assets_get))
         .route("/", get(root))
         .route("/contacts", get(contacts_get))
+        .route("/contacts/archive", post(contacts_archive_post))
+        .route("/contacts/archive", get(contacts_archive_get))
+        .route("/contacts/archive", delete(contacts_archive_delete))
+        .route("/contacts/archive/file", get(contacts_archive_file_get))
         .route("/contacts/count", get(contacts_count_get))
         .route("/contacts/new", get(contacts_new_get))
         .route("/contacts/new", post(contacts_new_post))
@@ -101,7 +111,7 @@ async fn contacts_get(
     let page = query.page.unwrap_or(1);
     let contacts_set = match &q {
         Some(q) if !q.is_empty() => app_state.contacts.search(q, page).await,
-        _ => app_state.contacts.all(page).await,
+        _ => app_state.contacts.all_by_page(page).await,
     }
     .unwrap();
 
@@ -119,11 +129,59 @@ async fn contacts_get(
             contacts: contacts_set,
             q: q.as_deref(),
             page,
+            archiver: &app_state.archiver,
         };
         layouter(flashes.clone(), markup::new!(@content))
     };
 
     (flashes, rendered)
+}
+
+async fn contacts_archive_post(State(app_state): State<AppState>) -> impl IntoResponse {
+    app_state.archiver.run();
+    Html(
+        (ArchiveUi {
+            archiver: &app_state.archiver,
+        })
+        .to_string(),
+    )
+}
+
+async fn contacts_archive_get(State(app_state): State<AppState>) -> impl IntoResponse {
+    Html(
+        (ArchiveUi {
+            archiver: &app_state.archiver,
+        })
+        .to_string(),
+    )
+}
+
+async fn contacts_archive_delete(State(app_state): State<AppState>) -> impl IntoResponse {
+    app_state.archiver.reset();
+
+    Html(
+        (ArchiveUi {
+            archiver: &app_state.archiver,
+        })
+        .to_string(),
+    )
+}
+
+async fn contacts_archive_file_get(State(app_state): State<AppState>) -> Response {
+    let headers = AppendHeaders([
+        (header::CONTENT_TYPE, "application/json; charset=utf8"),
+        (
+            header::CONTENT_DISPOSITION,
+            r#"attachment; filename="archive.json""#,
+        ),
+    ]);
+
+    let Some(json_data) = app_state.archiver.json_data() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let json_data = json_data.to_string();
+
+    (headers, json_data).into_response()
 }
 
 async fn contacts_count_get(State(app_state): State<AppState>) -> impl IntoResponse {
@@ -325,7 +383,7 @@ async fn contacts_validate_email(
 }
 
 markup::define! {
-    ContactsContent<'a>(contacts: Vec<Contact>, q: Option<&'a str>, page: u32) {
+    ContactsContent<'a>(contacts: Vec<Contact>, q: Option<&'a str>, page: u32, archiver: &'a Archiver) {
         // div {
         //     span [style="float: right"] {
         //         @if *page > 1 {
@@ -350,6 +408,7 @@ markup::define! {
         //     }
         // }
 
+        @ArchiveUi{ archiver }
         form ."tool-bar"[action="/contacts", method="get"] {
             label [for="search"] { "Search Term" }
             input #search[
@@ -392,6 +451,39 @@ markup::define! {
                 }
                 tbody {
                     @ContactsTableRows { contacts, q, page }
+                }
+            }
+        }
+    }
+
+    ArchiveUi<'a>(archiver: &'a Archiver) {
+        div #"archive-ui"["hx-target"="this", "hx-swap"="outerHTML"] {
+            @match archiver.status() {
+                contacts_archiver::Status::Waiting => {
+                    button ["hx-post"="/contacts/archive"] {
+                        "Download Contact Archive"
+                    }
+                }
+                contacts_archiver::Status::Running => {
+                    div ["hx-get"="/contacts/archive", "hx-trigger"="load delay:500ms"] {
+                        "Creating Archive…"
+                        div .progress {
+                            div #"archive-progress"."progress-bar"[
+                                role="progressbar",
+                                "aria-valuenow"={archiver.progress() * 100.0},
+                                "style"=format!("width: {}%", archiver.progress() * 100.0),
+                            ];
+                        }
+                    }
+                }
+                contacts_archiver::Status::Complete => {
+                    a ["hx-boost"="false", href="/contacts/archive/file"] {
+                        "Archive Ready! Click here to download. ↓"
+                    }
+                    @{" "}
+                    button ["hx-delete"="/contacts/archive"] {
+                        "Clear Download"
+                    }
                 }
             }
         }
