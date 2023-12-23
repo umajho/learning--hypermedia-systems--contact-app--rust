@@ -443,7 +443,7 @@ markup::define! {
             }
         }
         form {
-            button [
+            button ."js-only"[
                 "hx-delete"="/contacts",
                 "hx-push-url"="true", // NOTE: See [`contacts_delete`].
                 "hx-confirm"="Are you sure you want to delete these contacts?",
@@ -452,7 +452,7 @@ markup::define! {
             table {
                 thead {
                     tr {
-                        th; th { "First" } th { "Last" } th { "Phone" } th { "Email" }
+                        th ."js-only"; th { "First" } th { "Last" } th { "Phone" } th { "Email" }
                     }
                 }
                 tbody {
@@ -463,7 +463,7 @@ markup::define! {
     }
 
     ArchiveUi<'a>(archiver: &'a Archiver) {
-        div #"archive-ui"["hx-target"="this", "hx-swap"="outerHTML"] {
+        div #"archive-ui"."js-only"["hx-target"="this", "hx-swap"="outerHTML"] {
             @match archiver.status() {
                 contacts_archiver::Status::Waiting => {
                     button ["hx-post"="/contacts/archive"] {
@@ -498,7 +498,7 @@ markup::define! {
     ContactsTableRows<'a>(contacts: &'a Vec<Contact>, q: &'a Option<&'a str>, page: &'a u32) {
         @for contact in contacts.iter() {
             tr {
-                td {
+                td ."js-only" {
                     input [type="checkbox", name="selected_contact_ids", value=contact.id().value()];
                 }
                 td { @contact.first() }
@@ -510,7 +510,7 @@ markup::define! {
                     @{" "}
                     a [href=format!("/contacts/{}", contact.id().value())] { "View" }
                     @{" "}
-                    a [
+                    a ."js-only"[
                         "hx-delete"=format!("/contacts/{}", contact.id().value()),
                         "hx-swap"="outerHTML swap:1s",
                         "hx-confirm"="Are you sure you want to delete this contact?",
