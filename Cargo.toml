@@ -13,6 +13,7 @@ axum-extra = { version = "0.9.0", features = ["form"] }
 axum-flash = "0.8.0"
 axum-htmx = "0.5.0"
 fakeit = "1.2.0"
+form_urlencoded = "1.2.1"
 html-escape = "0.2.13"
 markup = "0.15.0"
 mime_guess = "2.0.4"

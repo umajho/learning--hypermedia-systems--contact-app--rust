@@ -390,29 +390,31 @@ async fn contacts_validate_email(
 
 markup::define! {
     ContactsContent<'a>(contacts: Vec<Contact>, q: Option<&'a str>, page: u32, archiver: &'a Archiver) {
-        // div {
-        //     span [style="float: right"] {
-        //         @if *page > 1 {
-        //             a [
-        //                 "hx-get"=format!("/contacts?page={}", page-1),
-        //                 "hx-target"="body",
-        //                 "hx-swap"="outerHTML",
-        //                 "hx-push-url"="true",
-        //                 "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
-        //             ] { "Previous" }
-        //         }
-        //         @{" "}
-        //         @if contacts.len() == (contact_repo::PAGE_SIZE as usize) {
-        //             a [
-        //                 "hx-get"=format!("/contacts?page={}", page+1),
-        //                 "hx-target"="body",
-        //                 "hx-swap"="outerHTML",
-        //                 "hx-push-url"="true",
-        //                 "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
-        //             ] { "Next" }
-        //         }
-        //     }
-        // }
+        noscript {
+            div {
+                span [style="float: right"] {
+                    @if *page > 1 {
+                        a [
+                            href=format!("/contacts?{}", make_page_parameters(page - 1, q))
+                            // "hx-get"=format!("/contacts?{}", make_page_parameters(page - 1, q)),
+                            // "hx-target"="body",
+                            // "hx-swap"="outerHTML",
+                            // "hx-push-url"="true",
+                        ] { "Previous" }
+                    }
+                    @{" "}
+                    @if contacts.len() == (contact_repo::PAGE_SIZE as usize) {
+                        a [
+                            href=format!("/contacts?{}", make_page_parameters(page + 1, q))
+                            // "hx-get"=format!("/contacts?page={}", make_page_parameters(page + 1, q)),
+                            // "hx-target"="body",
+                            // "hx-swap"="outerHTML",
+                            // "hx-push-url"="true",
+                        ] { "Next" }
+                    }
+                }
+            }
+        }
 
         @ArchiveUi{ archiver }
         form ."tool-bar"[action="/contacts", method="get"] {
@@ -531,7 +533,7 @@ markup::define! {
                     //     "hx-get"=format!("/contacts?page={}", page + 1),
                     //     "hx-vals"=q.map(|q| serde_json::json!({ "q": q }).to_string()),
                     // ] { "Load More" }
-                    span [
+                    span ."js-only" [
                         "hx-target"="closest tr",
                         "hx-trigger"="revealed",
                         "hx-swap"="outerHTML",
@@ -636,4 +638,13 @@ markup::define! {
             button { "Save" }
         }
     }
+}
+
+fn make_page_parameters(page: u32, q: &Option<&str>) -> String {
+    let mut params = form_urlencoded::Serializer::new(String::new());
+    params.append_pair("page", &(page).to_string());
+    if let Some(q) = q {
+        params.append_pair("q", q);
+    }
+    params.finish().to_string()
 }

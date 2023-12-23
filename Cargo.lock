@@ -338,6 +338,7 @@ dependencies = [
  "axum-flash",
  "axum-htmx",
  "fakeit",
+ "form_urlencoded",
  "html-escape",
  "markup",
  "mime_guess",
