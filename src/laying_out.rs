@@ -20,7 +20,9 @@ pub async fn with_layouter(mut req: Request, next: Next) -> Response {
     let HxBoosted(is_htmx_boosted) = req.extract_parts::<HxBoosted>().await.unwrap();
 
     let layouter = if is_htmx_request && !is_htmx_boosted {
-        Layouter(Arc::new(|_, content| Html(content.to_string())))
+        Layouter(Arc::new(|flashes, content| {
+            Html(layouts::Minimum { flashes, content }.to_string())
+        }))
     } else {
         Layouter(Arc::new(|flashes, content| {
             Html(layouts::Default { flashes, content }.to_string())
@@ -52,12 +54,25 @@ mod layouts {
             }
             body ["hx-boost"="true"] {
                 main {
-                    @for (_, message) in flashes.iter() {
-                        div .flash { @message }
+                    div #flashes {
+                        @for (_, message) in flashes.iter() {
+                            div .flash { @message }
+                        }
                     }
-                    @content
+                    div #content {
+                        @content
+                    }
                 }
             }
+        }
+
+        Minimum<T: markup::Render>(flashes: IncomingFlashes, content: T) {
+            div #flashes["hx-swap-oob"="true"] {
+                @for (_, message) in flashes.iter() {
+                    div .flash { @message }
+                }
+            }
+            @content
         }
     }
 }

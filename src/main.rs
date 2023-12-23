@@ -446,7 +446,7 @@ markup::define! {
                 "hx-delete"="/contacts",
                 "hx-push-url"="true", // NOTE: See [`contacts_delete`].
                 "hx-confirm"="Are you sure you want to delete these contacts?",
-                "hx-target"="main",
+                "hx-target"="#content",
             ] { "Delete Selected Contacts" }
             table {
                 thead {
@@ -578,7 +578,7 @@ markup::define! {
                 "hx-delete"=format!("/contacts/{}", contact.id().value()),
                 "hx-push-url"="true",
                 "hx-confirm"="Are you sure you want to delete this contact?",
-                "hx-target"="main",
+                "hx-target"="#content",
             ] {
                 "Delete Contact"
             }
