@@ -51,16 +51,16 @@ mod layouts {
                     link [rel="stylesheet", href="https://unpkg.com/missing.css@1.1.1"];
                     link [rel="stylesheet", href="/static/site.css"];
                 }
-            }
-            body ["hx-boost"="true"] {
-                main {
-                    div #flashes {
-                        @for (_, message) in flashes.iter() {
-                            div .flash { @message }
+                body ["hx-boost"="true"] {
+                    main {
+                        div #flashes {
+                            @for (_, message) in flashes.iter() {
+                                div .flash { @message }
+                            }
                         }
-                    }
-                    div #content {
-                        @content
+                        div #content {
+                            @content
+                        }
                     }
                 }
             }
