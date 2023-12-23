@@ -16,7 +16,7 @@ use axum::{
 };
 use axum_extra::extract::Form;
 use axum_flash::{Flash, IncomingFlashes};
-use axum_htmx::HxTrigger;
+use axum_htmx::{HxRequest, HxTrigger};
 use contacts_archiver::Archiver;
 use laying_out::Layouter;
 use serde::Deserialize;
@@ -321,6 +321,7 @@ async fn contacts_edit_post(
 
 async fn contacts_delete_post(
     State(app_state): State<AppState>,
+    HxRequest(is_htmx_request): HxRequest,
     HxTrigger(htmx_trigger): HxTrigger,
     flash: Flash,
     Path(contact_id): Path<String>,
@@ -330,7 +331,7 @@ async fn contacts_delete_post(
         .delete(ContactId::new(contact_id.parse().unwrap()))
         .await
         .unwrap();
-    if htmx_trigger.as_deref() == Some("delete-btn") {
+    if !is_htmx_request || htmx_trigger.as_deref() == Some("delete-btn") {
         (flash.success("Deleted Contact!"), Redirect::to("/contacts")).into_response()
     } else {
         Html("").into_response()
