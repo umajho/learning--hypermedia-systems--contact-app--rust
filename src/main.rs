@@ -45,7 +45,12 @@ const FAKE_CONTACTS: u32 = 100;
 
 #[tokio::main]
 async fn main() {
-    let pool = SqlitePoolOptions::new().connect(":memory:").await.unwrap();
+    let pool = SqlitePoolOptions::new()
+        .max_lifetime(None)
+        .idle_timeout(None)
+        .connect(":memory:")
+        .await
+        .unwrap();
 
     let flash_config = axum_flash::Config::new(axum_flash::Key::generate());
     let contacts = Arc::new(
