@@ -36,7 +36,7 @@ mod layouts {
     use axum_flash::IncomingFlashes;
 
     markup::define! {
-      Default<T: markup::Render>(flashes: IncomingFlashes, content: T) {
+        Default<T: markup::Render>(flashes: IncomingFlashes, content: T) {
             @markup::doctype()
             html {
                 head {
